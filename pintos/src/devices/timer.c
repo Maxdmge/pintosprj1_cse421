@@ -20,13 +20,18 @@
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
+/*list that stores threaads*/
+//static struct list thread_list;
+static struct list ready_list;
+
+
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
-static void busy_wait (int64_t loops);
+//static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
@@ -86,14 +91,38 @@ timer_elapsed (int64_t then)
 
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
+
+static bool compare_time (const struct list_elem *e1,const struct list_elem *e2, void *aux ){
+    
+    struct thread *thread_a, *thread_b;
+
+    thread_a= list_entry(e1,struct thread,elem);
+    thread_b= list_entry(e2,struct thread,elem);
+
+    return thread_a->time < thread_b->time;
+
+}
+
 void
 timer_sleep (int64_t ticks) 
 {
+  
   int64_t start = timer_ticks ();
 
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
+ // while (timer_elapsed (start) < ticks) 
+    
+    struct thread *cur = thread_current ();
+    cur->time=start+ticks;
+    cur->status = THREAD_READY;
+
+    list_insert_ordered(&ready_list,cur,compare_time,NULL);
+
     thread_yield ();
+
+    
+
+
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -168,10 +197,21 @@ timer_print_stats (void)
 //
 /* Timer interrupt handler. */
 static void
-timer_interrupt (struct intr_frame *args UNUSED)
+timer_interrupt (struct intr_frame *args)
 {
+
+
   ticks++;
   thread_tick ();
+
+  
+      struct thread headT = list_entry(list_begin(&ready_list),struct thread, elem);
+  
+  
+      //thread_a= list_entry(e1,struct thread,elem);
+    if( headT.time >= ticks){
+        schedule();
+    }
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
