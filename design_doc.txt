@@ -27,21 +27,40 @@ ALARM CLOCK
 >> A2: Briefly describe what happens in a call to timer_sleep(),
 >> including the effects of the timer interrupt handler.
 
-A2:  A thread that is set to sleep will immediately be blocked. It will then be inserted to a sorted list of threads, 
-sorted by their time of being free. This list will be consulted whenever thread_start() is called,
+A2:  A thread that is set to sleep will immediately be blocked. It will then be inserted to a sorted list of threads (let's call this thread_list), 
+sorted by their time of being free. thread_list will be consulted whenever thread_start() is called,
 with each thread that has passed this tick time being called with thread_unblock().
+The timer interrupt handler will only be accessed in thread_start(), as that's the only time where the threads will be changing state out of sleep.
+The effects of accessing the timer interrupt handler will be potentially losing ticks and making the program run slowly, so we have to make sure
+that as little time as possible is spent with it off.
 
 >> A3: What steps are taken to minimize the amount of time spent in
 >> the timer interrupt handler?
-  
+
+Most of the calculations regarding thread_list will be done with the timer interrupt handler not being accessed, such as sorting.
+When we change the state of a thread from blocked to ready, we will avoid high latencies by making any modifications (removals of these threads)
+from thread_list after we have finished readying all of the threads.
+This means we won't need a mutex to access thread_list during the timer interrupt disabled stage, as we're only accessing the information in the variables.
+
 ---- SYNCHRONIZATION ----
 >> A4: How are race conditions avoided when multiple threads call
 >> timer_sleep() simultaneously?
+
+For thread_list, any accesses to it will be handles in a locked mutex. This is both true in thread_start() and timer_sleep(). Only one
+function can modify thread_list at a time.
+
 >> A5: How are race conditions avoided when a timer interrupt occurs
 >> during a call to timer_sleep()?
+
+Timer interrupts will only be initiated in a locked mutex in thread_start(), the same locked mutex that makes modifications to thread_list which holds information
+about the threads.
+
 ---- RATIONALE ----
 >> A6: Why did you choose this design? In what ways is it superior to
 >> another design you considered?
+
+Another design we considered was to initiate a separate thread that utilizes a monitor to check if a thread needs to be unblocked at a certain tick. This design was both intensive (might even be considered a form of busy waiting), and difficult to implement, as it requires keeping track of N conditions, where each condition is set with a certain tick time.
+
 PRIORITY SCHEDULING
 ===================
 ---- DATA STRUCTURES ----
@@ -103,12 +122,6 @@ ticks A B C A B C to run
 ---- RATIONALE ----
 >> C5: Briefly critique your design, pointing out advantages and
 >> disadvantages in your design choices. If you were to have extra
-10/3/24, 2:26 PM cse.buffalo.edu/faculty/tkosar/cse421-521
-_
-fall2013/projects/project-2/WWW/threads.tmpl
-https://cse.buffalo.edu/faculty/tkosar/cse421-521
-_
-fall2013/projects/project-2/WWW/threads.tmpl 2/3
 >> time to work on this part of the project, how might you choose to
 >> refine or improve your design?
 >> C6: The assignment explains arithmetic for fixed-point math in
