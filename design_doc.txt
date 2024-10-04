@@ -6,7 +6,7 @@
 ---- GROUP ----
 >> Fill in the names and email addresses of your group members.
 Dean Mekulovic deanmeku@buffalo.edu
-FirstName LastName <email@domain.example>
+Yun Yang yyang94@buffalo.edu
 FirstName LastName <email@domain.example>
 ---- PRELIMINARIES ----
 >> If you have any preliminary comments on your submission, notes for the
