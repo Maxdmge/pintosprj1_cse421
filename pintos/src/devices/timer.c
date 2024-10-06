@@ -103,7 +103,7 @@ static bool compare_time (const struct list_elem *e1,const struct list_elem *e2,
     thread_a= list_entry(e1,struct thread,sleep);
     thread_b= list_entry(e2,struct thread,sleep);
 
-    return thread_a->time < thread_b->time;
+    return thread_a->time <= thread_b->time;
 }
 
 void
@@ -207,16 +207,18 @@ timer_interrupt (struct intr_frame *args UNUSED)
   ticks++;
   thread_tick ();
   struct list_elem *e;
-  while (!list_empty(&waiting_list)) {
-    e = list_begin(&waiting_list);
-    struct thread *f = list_entry (e, struct thread, sleep);
-    if (f->time <= timer_ticks()) {
-      list_pop_front(&waiting_list);
-      thread_unblock(f);
-      printf("%d", f->time);
-    } else {
-      break;
+  if (lock_try_acquire(&list_lock)) {
+    while (!list_empty(&waiting_list)) {
+      e = list_begin(&waiting_list);
+      struct thread *f = list_entry (e, struct thread, sleep);
+      if (f->time <= timer_ticks()) {
+        list_pop_front(&waiting_list);
+        thread_unblock(f);
+      } else {
+        break;
+      }
     }
+    lock_release(&list_lock);
   }
 }
 
