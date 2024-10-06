@@ -30,7 +30,11 @@ static bool too_many_loops (unsigned loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 // timer lock
-static struct lock timer_lock;
+static struct lock list_lock;
+
+static struct list waiting_list;
+
+
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
@@ -38,8 +42,8 @@ void
 
 timer_init (void) 
 {
-
-  lock_init(&timer_lock);
+  lock_init(&list_lock);
+  list_init(&waiting_list);
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -105,20 +109,20 @@ static bool compare_time (const struct list_elem *e1,const struct list_elem *e2,
 void
 timer_sleep (int64_t ticks) 
 {
-  if (ticks == 0) {
+  if (ticks <= 0) {
     return;
   }
-  enum intr_level prev_state = intr_disable(); // we can immediately disable the running thread
-  int64_t start = timer_ticks ();
   struct thread *cur = thread_current();
+  int64_t start = timer_ticks ();
   cur->time=start+ticks; 
-  cur->status = THREAD_BLOCKED;
-  intr_set_level(prev_state);
-  lock_acquire(&timer_lock); // we need to make sure that there aren't any threads that are overwritten
-  struct list tracking_list = get_sleeping_list();
-  list_insert_ordered(&tracking_list,&cur->elem,compare_time,NULL);
-  set_sleeping_list(tracking_list);
-  lock_release(&timer_lock);
+  enum intr_level prev = intr_disable();
+  list_insert_ordered(&waiting_list,&cur->elem,compare_time,NULL);
+  thread_block();
+  intr_set_level(prev);
+
+  //while (timer_elapsed (start) < ticks) 
+  //  thread_yield ();
+  
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -192,11 +196,25 @@ timer_print_stats (void)
 }
 
 /* Timer interrupt handler. */
+
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+  struct list_elem *e;
+  while (!list_empty(&waiting_list)) {
+    e = list_begin(&waiting_list);
+    struct thread *f = list_entry (e, struct thread, elem);
+    if (f->time <= timer_ticks()) {
+      if (f != NULL && f->magic == 0xcd6abf4b) {
+        thread_unblock(f);
+      }
+      list_pop_front(&waiting_list);
+    } else {
+      break;
+    }
+  }
 }
 
 /* Iterates through a simple loop LOOPS times, for implementing

@@ -13,19 +13,12 @@
 #include "threads/vaddr.h"
 #ifdef USERPROG
 #include "userprog/process.h"
-#include "devices/timer.h"
 #endif
-
-
 
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
-
-
-
-static bool temp_compare (const struct list_elem *e1,const struct list_elem *e2, void *aux);
 
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
@@ -35,9 +28,6 @@ static struct list ready_list;
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
 
-
-static struct list waiting_list;
-
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -46,10 +36,6 @@ static struct thread *initial_thread;
 
 /* Lock used by allocate_tid(). */
 static struct lock tid_lock;
-
-// lock used by sleeping list
-static struct lock list_modifier;
-
 
 /* Stack frame for kernel_thread(). */
 struct kernel_thread_frame 
@@ -104,12 +90,8 @@ thread_init (void)
   ASSERT (intr_get_level () == INTR_OFF);
 
   lock_init (&tid_lock);
-  lock_init(&list_modifier);
-
   list_init (&ready_list);
   list_init (&all_list);
-  list_init (&waiting_list);
-
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -246,18 +228,6 @@ thread_block (void)
    be important: if the caller had disabled interrupts itself,
    it may expect that it can atomically unblock a thread and
    update other data. */
-
-static bool temp_compare (const struct list_elem *e1,const struct list_elem *e2, void *aux UNUSED){
-    
-    struct thread *thread_a, *thread_b;
-
-    thread_a= list_entry(e1,struct thread,elem);
-    thread_b= list_entry(e2,struct thread,elem);
-
-    return thread_a->priority > thread_b->priority;
-
-}
-
 void
 thread_unblock (struct thread *t) 
 {
@@ -267,8 +237,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
- // list_push_back (&ready_list, &t->elem);
-  list_insert_ordered(&ready_list,&t->elem,temp_compare,NULL);
+  list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -580,35 +549,9 @@ thread_schedule_tail (struct thread *prev)
 
    It's not safe to call printf() until thread_schedule_tail()
    has completed. */
-
-
-struct list get_sleeping_list(void) {
-  lock_acquire(&list_modifier);
-  return waiting_list;
-  lock_release(&list_modifier);
-}
-void set_sleeping_list(struct list new_value) {
-  lock_acquire(&list_modifier);
-  waiting_list = new_value;
-  lock_release(&list_modifier);
-}
-
 static void
-schedule (void)
+schedule (void) 
 {
-  struct list waiter_list = get_sleeping_list();
-  struct list_elem *e;
-  /* free ALL members who have passed a certain time.*/
-  for (e = list_begin (&waiter_list); e != list_end (&waiter_list); e = list_next (e)) { 
-      struct thread *f = list_entry (e, struct thread, elem);
-        if (f->time > timer_ticks()) {
-          f->status = THREAD_READY;
-          list_pop_front(&waiter_list);
-        } else {
-          break;
-        }
-  }
-  set_sleeping_list(waiter_list);
   struct thread *cur = running_thread ();
   struct thread *next = next_thread_to_run ();
   struct thread *prev = NULL;
