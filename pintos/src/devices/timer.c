@@ -116,10 +116,11 @@ timer_sleep (int64_t ticks)
   int64_t start = timer_ticks ();
   cur->time=start+ticks; 
 
+
   lock_acquire(&list_lock);
   list_insert_ordered(&waiting_list,&cur->sleep,compare_time,NULL);
   lock_release(&list_lock);
-
+  
   enum intr_level prev = intr_disable();
   thread_block();
   intr_set_level(prev);
