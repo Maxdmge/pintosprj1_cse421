@@ -100,8 +100,8 @@ static bool compare_time (const struct list_elem *e1,const struct list_elem *e2,
     
     struct thread *thread_a, *thread_b;
 
-    thread_a= list_entry(e1,struct thread,elem);
-    thread_b= list_entry(e2,struct thread,elem);
+    thread_a= list_entry(e1,struct thread,sleep);
+    thread_b= list_entry(e2,struct thread,sleep);
 
     return thread_a->time < thread_b->time;
 }
@@ -115,8 +115,12 @@ timer_sleep (int64_t ticks)
   struct thread *cur = thread_current();
   int64_t start = timer_ticks ();
   cur->time=start+ticks; 
+
+  lock_acquire(&list_lock);
+  list_insert_ordered(&waiting_list,&cur->sleep,compare_time,NULL);
+  lock_release(&list_lock);
+
   enum intr_level prev = intr_disable();
-  list_insert_ordered(&waiting_list,&cur->elem,compare_time,NULL);
   thread_block();
   intr_set_level(prev);
 
@@ -205,12 +209,11 @@ timer_interrupt (struct intr_frame *args UNUSED)
   struct list_elem *e;
   while (!list_empty(&waiting_list)) {
     e = list_begin(&waiting_list);
-    struct thread *f = list_entry (e, struct thread, elem);
+    struct thread *f = list_entry (e, struct thread, sleep);
     if (f->time <= timer_ticks()) {
-      if (f != NULL && f->magic == 0xcd6abf4b) {
-        thread_unblock(f);
-      }
       list_pop_front(&waiting_list);
+      thread_unblock(f);
+      printf("%d", f->time);
     } else {
       break;
     }
