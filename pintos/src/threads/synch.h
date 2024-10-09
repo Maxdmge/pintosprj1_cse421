@@ -25,8 +25,10 @@ struct lock
   };
 
 void lock_init (struct lock *);
+void lock_acquire_helper(struct thread *, int);
 void lock_acquire (struct lock *);
 bool lock_try_acquire (struct lock *);
+void lock_release_helper(struct thread *);
 void lock_release (struct lock *);
 bool lock_held_by_current_thread (const struct lock *);
 

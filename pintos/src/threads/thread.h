@@ -88,8 +88,9 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
+    int orig_priority;                  // priority inversion counter measure, we store the thread's original priority here (i.e, deadlocks)
     struct list_elem allelem;           /* List element for all threads list. */
-   int time;
+    int time;
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
     struct list_elem sleep;
@@ -119,6 +120,8 @@ tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 void thread_block (void);
 void thread_unblock (struct thread *);
+void ready_list_adjust(struct thread *t);
+void running_adjust(struct thread *t);
 
 struct thread *thread_current (void);
 tid_t thread_tid (void);
