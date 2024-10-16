@@ -205,8 +205,23 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
+  if (t->priority > thread_current()->priority) // we should replace the currently running thread with the new one.
+    thread_yield();
+
   return tid;
 }
+
+
+static bool compare_priority (const struct list_elem *e1,const struct list_elem *e2,void *aux){ // sorting function, we use this for readylist.
+    
+    struct thread *thread_a, *thread_b;
+
+    thread_a= list_entry(e1,struct thread, elem);
+    thread_b= list_entry(e2,struct thread, elem);
+
+    return thread_a->priority > thread_b->priority;
+}
+
 
 /* Puts the current thread to sleep.  It will not be scheduled
    again until awoken by thread_unblock().
@@ -232,53 +247,16 @@ thread_block (void)
    be important: if the caller had disabled interrupts itself,
    it may expect that it can atomically unblock a thread and
    update other data. */
-
-
-static bool compare_time (const struct list_elem *e1,const struct list_elem *e2,void *aux){ // sorting function, we use this for readylist.
-    
-    struct thread *thread_a, *thread_b;
-
-    thread_a= list_entry(e1,struct thread, elem);
-    thread_b= list_entry(e2,struct thread, elem);
-
-    return thread_a->priority <= thread_b->priority;
-}
-
 void
 thread_unblock (struct thread *t) 
 {
   enum intr_level old_level;
   ASSERT (is_thread (t));
-
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
   t->status = THREAD_READY;
+  list_insert_ordered(&ready_list,&t->elem,compare_priority,NULL);
   intr_set_level (old_level);
-  lock_acquire(&ready_lock);
-  list_insert_ordered(&ready_list,&t->elem,compare_time,NULL); // we might need to move this to the interrupt disabled state. for now, a lock should suffice.
-  lock_release(&ready_lock);
-}
-
-void 
-ready_list_adjust (struct thread *t)
-{
-  
-  lock_acquire(&ready_lock);
-  list_remove(&t->elem);   // first we remove the old thread:
-  list_insert_ordered(&ready_list,&t->elem,compare_time,NULL); // we readd this thread to the priority list with it's corrected priority.
-  lock_release(&ready_lock);
-}
-
-void 
-running_adjust (struct thread *t)
-{
-  if (thread_current()->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority) {
-    lock_acquire(&ready_lock);
-    list_remove(&t->elem);   // first we remove the old thread:
-    list_insert_ordered(&ready_list,&t->elem,compare_time,NULL); // we readd this thread to the priority list with it's corrected priority.
-    lock_release(&ready_lock);
-    thread_yield();
-  }
 }
 
 /* Returns the name of the running thread. */
@@ -291,6 +269,25 @@ thread_name (void)
 /* Returns the running thread.
    This is running_thread() plus a couple of sanity checks.
    See the big comment at the top of thread.h for details. */
+
+void 
+ready_list_adjust (struct thread *t)
+{
+  lock_acquire(&ready_lock);
+  list_remove(&t->elem);   // first we remove the old thread:
+  list_insert_ordered(&ready_list,&t->elem,compare_priority,NULL); // we readd this thread to the priority list with it's corrected priority.
+  lock_release(&ready_lock);
+}
+
+void 
+running_adjust (struct thread *t)
+{
+  //return; // disable the function for now
+  if (thread_current()->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority) {
+    thread_yield();
+  }
+}
+
 struct thread *
 thread_current (void) 
 {
@@ -342,16 +339,15 @@ thread_yield (void)
 {
   struct thread *cur = thread_current ();
   enum intr_level old_level;
-  
   ASSERT (!intr_context ());
-
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_insert_ordered(&ready_list,&cur->elem,compare_time,NULL); // we might need to move this to the interrupt disabled state. for now, a lock should suffice.
+    list_insert_ordered(&ready_list,&cur->elem,compare_priority,NULL); // we readd this thread to the priority list with it's corrected priority.
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
 }
+
 
 /* Invoke function 'func' on all threads, passing along 'aux'.
    This function must be called with interrupts off. */
@@ -374,15 +370,18 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
-  thread_current ()->orig_priority = new_priority;
+  struct thread *cur = thread_current ();
+  cur->priority = new_priority;
+  cur->orig_priority = new_priority;
+  thread_yield();
 }
+
 
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) 
 {
-  return thread_current ()->priority; // this returns the masked priority, not the real priority.
+  return thread_current ()->priority;
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -533,11 +532,8 @@ next_thread_to_run (void)
 {
   if (list_empty (&ready_list))
     return idle_thread;
-  else 
-    lock_acquire(&ready_lock);
-    struct thread *next_thread = list_entry(list_pop_front (&ready_list), struct thread, elem);
-    lock_release(&ready_lock);
-    return next_thread;
+  else
+    return list_entry (list_pop_front (&ready_list), struct thread, elem);
 }
 
 /* Completes a thread switch by activating the new thread's page
@@ -607,7 +603,6 @@ schedule (void)
   if (cur != next)
     prev = switch_threads (cur, next);
   thread_schedule_tail (prev);
-  printf("end of schedule");
 }
 
 /* Returns a tid to use for a new thread. */
@@ -627,4 +622,3 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
-
