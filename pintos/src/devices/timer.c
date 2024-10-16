@@ -1,3 +1,4 @@
+
 #include "devices/timer.h"
 #include <debug.h>
 #include <inttypes.h>
@@ -20,26 +21,30 @@
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
-/*list that stores threaads*/
-//static struct list thread_list;
-static struct list ready_list;
-
-
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
-//static void busy_wait (int64_t loops);
+static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
+// timer lock
+static struct lock list_lock;
+
+static struct list waiting_list;
+
+
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
+
 timer_init (void) 
 {
+  lock_init(&list_lock);
+  list_init(&waiting_list);
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -92,37 +97,38 @@ timer_elapsed (int64_t then)
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
 
-static bool compare_time (const struct list_elem *e1,const struct list_elem *e2, void *aux ){
+static bool compare_time (const struct list_elem *e1,const struct list_elem *e2,void *aux){
     
     struct thread *thread_a, *thread_b;
 
-    thread_a= list_entry(e1,struct thread,elem);
-    thread_b= list_entry(e2,struct thread,elem);
+    thread_a= list_entry(e1,struct thread,sleep);
+    thread_b= list_entry(e2,struct thread,sleep);
 
-    return thread_a->time < thread_b->time;
-
+    return thread_a->time <= thread_b->time;
 }
 
 void
 timer_sleep (int64_t ticks) 
 {
-  
+  if (ticks <= 0) {
+    return;
+  }
+  struct thread *cur = thread_current();
   int64_t start = timer_ticks ();
-
-  ASSERT (intr_get_level () == INTR_ON);
- // while (timer_elapsed (start) < ticks) 
-    
-    struct thread *cur = thread_current ();
-    cur->time=start+ticks;
-    cur->status = THREAD_READY;
-
-    list_insert_ordered(&ready_list,cur,compare_time,NULL);
-
-    thread_yield ();
-
-    
+  cur->time=start+ticks; 
 
 
+  lock_acquire(&list_lock);
+  list_insert_ordered(&waiting_list,&cur->sleep,compare_time,NULL);
+  lock_release(&list_lock);
+  
+  enum intr_level prev = intr_disable();
+  thread_block();
+  intr_set_level(prev);
+
+  //while (timer_elapsed (start) < ticks) 
+  //  thread_yield ();
+  
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -194,43 +200,28 @@ timer_print_stats (void)
 {
   printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
-//
+
 /* Timer interrupt handler. */
+
 static void
-timer_interrupt (struct intr_frame *args)
+timer_interrupt (struct intr_frame *args UNUSED)
 {
-
-
   ticks++;
   thread_tick ();
-
-  
-      struct thread headT = list_entry(list_begin(&ready_list),struct thread, elem);
-  
-  
-      //thread_a= list_entry(e1,struct thread,elem);
-    if( headT.time >= ticks){
-        schedule();
+  struct list_elem *e;
+  if (lock_try_acquire(&list_lock)) {
+    while (!list_empty(&waiting_list)) {
+      e = list_begin(&waiting_list);
+      struct thread *f = list_entry (e, struct thread, sleep);
+      if (f->time <= timer_ticks()) {
+        list_pop_front(&waiting_list);
+        thread_unblock(f);
+      } else {
+        break;
+      }
     }
-}
-
-/* Returns true if LOOPS iterations waits for more than one timer
-   tick, otherwise false. */
-static bool
-too_many_loops (unsigned loops) 
-{
-  /* Wait for a timer tick. */
-  int64_t start = ticks;
-  while (ticks == start)
-    barrier ();
-
-  /* Run LOOPS loops. */
-  start = ticks;
-  busy_wait (loops);
-
-  /* If the tick count changed, we iterated too long. */
-  barrier ();
-  return start != ticks;
+    lock_release(&list_lock);
+  }
 }
 
 /* Iterates through a simple loop LOOPS times, for implementing
@@ -245,6 +236,24 @@ busy_wait (int64_t loops)
 {
   while (loops-- > 0)
     barrier ();
+}
+/* Returns true if LOOPS iterations waits for more than one timer
+   tick, otherwise false. */
+static bool
+too_many_loops (unsigned loops) 
+{
+  /* Wait for a timer tick. */
+  int64_t start = ticks;
+  while (ticks == start)
+    barrier ();
+
+  /* Run LOOPS loops. */
+  start = ticks;
+  busy_wait(loops);
+
+  /* If the tick count changed, we iterated too long. */
+  barrier ();
+  return start != ticks;
 }
 
 /* Sleep for approximately NUM/DENOM seconds. */

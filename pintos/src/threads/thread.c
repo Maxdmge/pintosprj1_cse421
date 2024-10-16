@@ -1,3 +1,4 @@
+
 #include "threads/thread.h"
 #include <debug.h>
 #include <stddef.h>
@@ -15,16 +16,10 @@
 #include "userprog/process.h"
 #endif
 
-
-
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
-
-
-
-static bool temp_compare (const struct list_elem *e1,const struct list_elem *e2, void *aux);
 
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
@@ -76,6 +71,7 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
+//void try_yeild();
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -234,18 +230,6 @@ thread_block (void)
    be important: if the caller had disabled interrupts itself,
    it may expect that it can atomically unblock a thread and
    update other data. */
-
-static bool temp_compare (const struct list_elem *e1,const struct list_elem *e2, void *aux UNUSED){
-    
-    struct thread *thread_a, *thread_b;
-
-    thread_a= list_entry(e1,struct thread,elem);
-    thread_b= list_entry(e2,struct thread,elem);
-
-    return thread_a->priority > thread_b->priority;
-
-}
-
 void
 thread_unblock (struct thread *t) 
 {
@@ -255,8 +239,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
- // list_push_back (&ready_list, &t->elem);
-  list_insert_ordered(&ready_list,&t->elem,temp_compare,NULL);
+  list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -333,6 +316,21 @@ thread_yield (void)
   intr_set_level (old_level);
 }
 
+
+/*to check if we need to yield*/
+void
+try_yield (void)
+{
+  enum intr_level old_level = intr_disable ();
+  bool result = ((!list_empty (&ready_list)) &&
+                (list_entry (list_back (&ready_list), struct thread, elem)->priority > thread_get_priority ()));
+  
+  intr_set_level (old_level);
+  
+  if (result)
+	thread_yield (); 
+}
+
 /* Invoke function 'func' on all threads, passing along 'aux'.
    This function must be called with interrupts off. */
 void
@@ -355,6 +353,8 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
+  //thread_current ()->
+
 }
 
 /* Returns the current thread's priority. */
