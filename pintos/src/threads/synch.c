@@ -69,7 +69,7 @@ static bool compare_priority (const struct list_elem *e1,const struct list_elem 
 }
 
 void
-sema_down (struct semaphore *sema) 
+sema_down (struct semaphore *sema) // im pretty sure this works for both mlfqs and normal??
 {
   enum intr_level old_level;
 
@@ -83,6 +83,22 @@ sema_down (struct semaphore *sema)
       thread_block ();
       intr_set_level (old_level); //uncertain how it was working before - thread block should be reenabling interrupts, so we should have to disable them each time.
       old_level = intr_disable();
+    }
+  sema->value--;
+  intr_set_level (old_level);
+}
+
+mlfqs_down(struct semaphore *sema) {
+  enum intr_level old_level;
+
+  ASSERT (sema != NULL);
+  ASSERT (!intr_context ());
+
+  old_level = intr_disable ();
+  while (sema->value == 0) 
+    {
+      list_push_back (&sema->waiters, &thread_current ()->elem);
+      thread_block ();
     }
   sema->value--;
   intr_set_level (old_level);
@@ -119,7 +135,7 @@ sema_try_down (struct semaphore *sema)
 
    This function may be called from an interrupt handler. */
 void
-sema_up (struct semaphore *sema) 
+sema_up (struct semaphore *sema)  // not sure if i need to keep this or replace for mlfqs??
 {
   enum intr_level old_level;
   struct thread *first = NULL;
@@ -132,8 +148,23 @@ sema_up (struct semaphore *sema)
   }
   sema->value++;
   intr_set_level (old_level);
-  if (first != NULL && first->priority > thread_current()->priority)
+  if (first != NULL && first->priority > thread_current()->priority) 
     thread_yield();
+}
+
+void
+mlfqs_up (struct semaphore *sema) 
+{
+  enum intr_level old_level;
+
+  ASSERT (sema != NULL);
+
+  old_level = intr_disable ();
+  if (!list_empty (&sema->waiters)) 
+    thread_unblock (list_entry (list_pop_front (&sema->waiters),
+                                struct thread, elem));
+  sema->value++;
+  intr_set_level (old_level);
 }
 
 static void sema_test_helper (void *sema_);
@@ -221,11 +252,26 @@ lock_acquire (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
-  int curr_prio = thread_current() -> priority;
-  struct thread *holder_thread = lock->holder;
-  if (holder_thread != NULL) {
-    lock_acquire_helper(holder_thread,curr_prio);
+  if (thread_mlfqs) {
+    mlfqs_acquire(lock);
+  } else {
+    int curr_prio = thread_current() -> priority;
+    struct thread *holder_thread = lock->holder;
+    if (holder_thread != NULL) {
+      lock_acquire_helper(holder_thread,curr_prio);
+    }
+    sema_down (&lock->semaphore);
+    lock->holder = thread_current ();
   }
+}
+
+void
+mlfqs_acquire (struct lock *lock)
+{
+  ASSERT (lock != NULL);
+  ASSERT (!intr_context ());
+  ASSERT (!lock_held_by_current_thread (lock));
+
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
 }
@@ -277,6 +323,9 @@ lock_release (struct lock *lock)
 
   lock->holder = NULL;
   sema_up (&lock->semaphore);
+  if (!thread_mlfqs) {
+    thread_current()->priority = thread_current()->orig_priority;
+  }
 }
 
 /* Returns true if the current thread holds LOCK, false

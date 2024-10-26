@@ -207,7 +207,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
-  struct list_elem *e;
+  struct list_elem *e; // timer freq code
   if (lock_try_acquire(&list_lock)) {
     while (!list_empty(&waiting_list)) {
       e = list_begin(&waiting_list);
@@ -220,6 +220,10 @@ timer_interrupt (struct intr_frame *args UNUSED)
       }
     }
     lock_release(&list_lock);
+  }
+  if (thread_mlfqs && timer_ticks() % TIMER_FREQ == 0) {
+    recalculate_load_avg();
+    thread_foreach(thread_set_recent_cpu(),0);
   }
 }
 

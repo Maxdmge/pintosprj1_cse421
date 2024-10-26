@@ -89,7 +89,12 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     int orig_priority;                  // priority inversion counter measure, we store the thread's original priority here (i.e, deadlocks)
+    int nice;
+    int recent_cpu;
+    struct lock *waiting_for;           // lock that the current thread is waiting on.
+    struct list holding;                // list of locks that the current thread is holding.
     struct list_elem allelem;           /* List element for all threads list. */
+    struct list_elem lock_elem;
     int time;
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
@@ -122,6 +127,7 @@ void thread_block (void);
 void thread_unblock (struct thread *);
 void ready_list_adjust(struct thread *t);
 void running_adjust(struct thread *t);
+void recalculate_load_avg (void);
 
 struct thread *thread_current (void);
 tid_t thread_tid (void);
