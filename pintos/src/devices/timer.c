@@ -7,6 +7,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "threads/fixed-point.h"
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -117,7 +118,6 @@ timer_sleep (int64_t ticks)
   cur->time=start+ticks; 
 
   if (intr_get_level() == INTR_ON) {
-    //printf("interrupts are on\n");
     lock_acquire(&list_lock);
     list_insert_ordered(&waiting_list,&cur->sleep,compare_time,NULL);
     lock_release(&list_lock);
@@ -211,26 +211,30 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
-  struct list_elem *e; // timer freq code
-  if (lock_try_acquire(&list_lock)) {
-    while (!list_empty(&waiting_list)) {
-      e = list_begin(&waiting_list);
-      struct thread *f = list_entry (e, struct thread, sleep);
-      if (f->time <= timer_ticks()) {
-        list_pop_front(&waiting_list);
-        thread_unblock(f);
-      } else {
-        break;
-      }
+  struct list_elem *e;
+  enum intr_level old_level = intr_disable(); // previously was able to use locks (somehow in an interrupt state). mlfqs showed it was not possible.
+  while (!list_empty(&waiting_list)) {
+    e = list_begin(&waiting_list);
+    struct thread *f = list_entry (e, struct thread, sleep);
+    if (f->time <= timer_ticks()) {
+      list_pop_front(&waiting_list);
+      thread_unblock(f);
+    } else {
+      break;
     }
-    lock_release(&list_lock);
   }
-  
-  if (thread_mlfqs && timer_ticks() % TIMER_FREQ == 0) {
-    recalculate_load_avg();
-    thread_foreach(thread_set_recent_cpu, NULL);
+  intr_set_level(old_level);
+  struct thread * cur = thread_current();
+  cur->recent_cpu = fixedAddInt(cur->recent_cpu,1);
+  if (thread_mlfqs) {
+    if (timer_ticks() % 4 == 0) {
+      thread_foreach(thread_set_priority_mlfqs,NULL);
+    }
+    if (timer_ticks() % TIMER_FREQ == 0) {
+      recalculate_load_avg();
+      thread_foreach(thread_set_recent_cpu, NULL);
+    }
   }
-  
 }
 
 /* Iterates through a simple loop LOOPS times, for implementing

@@ -69,7 +69,7 @@ static bool compare_priority (const struct list_elem *e1,const struct list_elem 
 }
 
 void
-sema_down (struct semaphore *sema) // im pretty sure this works for both mlfqs and normal??
+sema_down (struct semaphore *sema) // only works for prioritiy inversion 
 {
   enum intr_level old_level;
 
@@ -135,7 +135,7 @@ sema_try_down (struct semaphore *sema)
 
    This function may be called from an interrupt handler. */
 void
-sema_up (struct semaphore *sema)  // not sure if i need to keep this or replace for mlfqs??
+sema_up (struct semaphore *sema)  // need separate for mlfqs and normal
 {
   enum intr_level old_level;
   struct thread *first = NULL;

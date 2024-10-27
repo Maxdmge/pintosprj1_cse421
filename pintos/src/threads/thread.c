@@ -288,18 +288,11 @@ ready_list_adjust (struct thread *t)
 }
 
 void 
-running_adjust (struct thread *t)
-{
-  //return; // disable the function for now
-  if (thread_current()->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority) {
+running_adjust (struct thread *t) // check if the running thread has a lower priority than the next thread in q.
+{  
+  if (!list_empty(&ready_list) && thread_current()->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority) { 
     thread_yield();
   }
-  /*
-  struct thread *next_thread = list_entry(list_front(&ready_list), struct thread, elem);
-  if (next_thread->priority > t->priority) {
-      thread_yield();
-  }
-  */
 }
 
 
@@ -347,7 +340,7 @@ thread_exit (void)
   NOT_REACHED ();
 }
 
-/* Yields the CPU.  The current thread is not put to sleep and
+/* Yields the CPU.  The current thread is not put to sleep and 
    may be scheduled again immediately at the scheduler's whim. */
 void
 thread_yield (void) 
@@ -407,10 +400,10 @@ thread_set_nice (int nice UNUSED)
 {
   struct thread *cur = thread_current();
   cur->nice = nice;
-  FixedP recent_cpu_div4 = fixedDivInt(cur->recent_cpu, 4);
-  FixedP nice_times_two = convToFixed(nice * 2);
-  FixedP priority_fixed = fixedSub(fixedSub(convToFixed(PRI_MAX), recent_cpu_div4), nice_times_two);
-  int prio = convToInt(priority_fixed);
+  FixedP recent_cpu_div = fixedDivInt(cur->recent_cpu, 4);
+  FixedP nice_two = convToFixed(nice * 2);
+  FixedP real_prio = fixedSub(fixedSub(convToFixed(PRI_MAX), recent_cpu_div), nice_two);
+  int prio = convToInt(real_prio);
   if (prio >  PRI_MAX) {
     prio = PRI_MAX;
   } else if (prio < PRI_MIN) {
@@ -429,25 +422,38 @@ thread_get_nice (void)
 
 void recalculate_load_avg (void) {
   // load_avg = (59/60) * load_avg + (1/60) * ready_threads 
-  FixedP coeff1 = fixedDiv(convToFixed(59), convToFixed(60));
-  FixedP coeff2 = fixedDiv(convToFixed(1), convToFixed(60));
+  FixedP c1 = fixedDiv(convToFixed(59), convToFixed(60));
+  FixedP c2 = fixedDiv(convToFixed(1), convToFixed(60));
   int ready_threads = list_size(&ready_list);
   if (thread_current() != idle_thread) {
     ready_threads += 1;
   }
   FixedP ready_threads_fixed = convToFixed(ready_threads);
-  //printf("thread count: %d\n", ready_threads);
 
-  load_avg = fixedAdd(fixedMull(coeff1, load_avg), fixedMull(coeff2, ready_threads_fixed));
-  //printf("load avg value following calc: %d\n", convToInt(load_avg));
+  load_avg = fixedAdd(fixedMull(c1, load_avg), fixedMull(c2, ready_threads_fixed));
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  //printf("load_avg value %d\n", load_avg);
   return convToInt(fixedMulInt(load_avg, 100));
+}
+
+void thread_set_priority_mlfqs(struct thread *cur, void *aux) {
+  FixedP recent_cpu_div = fixedDivInt(cur->recent_cpu, 4);
+  FixedP nice_two = convToFixed(cur->nice * 2);
+  FixedP real_prio = fixedSub(fixedSub(convToFixed(PRI_MAX), recent_cpu_div), nice_two);
+  int prio = convToInt(real_prio);
+  if (prio >  PRI_MAX) {
+    prio = PRI_MAX;
+  } else if (prio < PRI_MIN) {
+    prio = PRI_MIN;
+  }
+  cur->priority = prio;
+  if (cur->status == THREAD_READY) {
+    ready_list_adjust(cur);
+  }
 }
 
 void thread_set_recent_cpu(struct thread * t, void *aux) {
@@ -456,25 +462,24 @@ void thread_set_recent_cpu(struct thread * t, void *aux) {
   }
   // recent_cpu = (2*load_avg)/(2*load_avg+1)*recent_cpu+nice
   FixedP two = convToFixed(2);
-  FixedP one = convToFixed(1);
   FixedP load_avg_times_two = fixedMull(two, load_avg);
-  FixedP coefficient = fixedDiv(load_avg_times_two, fixedAdd(load_avg_times_two, one));
+  FixedP coefficient = fixedDiv(load_avg_times_two, fixedAddInt(load_avg_times_two, 1));
   FixedP recent_cpu = t->recent_cpu;
   FixedP nice_fixed = convToFixed(t->nice);
-  recent_cpu = fixedAdd(fixedMull(coefficient, recent_cpu), nice_fixed);
+  FixedP load_avg_and_recent = fixedMull(coefficient, recent_cpu);
+  recent_cpu = fixedAdd(load_avg_and_recent, nice_fixed);
   t->recent_cpu = recent_cpu;
-  if (t->status == THREAD_READY) {
+  if (t->status == THREAD_READY) { // will only be called from an interrupt context, so we don't need to check THREAD_RUNNING
     ready_list_adjust(t);
   }
 }
-
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
   struct thread *cur = thread_current();
-  return roundConvToInt(fixedMulInt(cur->recent_cpu, 100));
+  return convToInt(fixedMulInt(cur->recent_cpu, 100));
 }
 /* Idle thread.  Executes when no other thread is ready to run.
 
@@ -565,13 +570,15 @@ init_thread (struct thread *t, const char *name, int priority)
     t->priority = priority;
     t->orig_priority = priority;
   } else {
-    t->priority = 31;
+    t->priority = PRI_DEFAULT;
   }
   t->nice = 0; // default nice value
-  if (t == initial_thread)
+  if (t == initial_thread) {
     t->recent_cpu = convToFixed(0);
-  else
+  } else {
+    t->nice = thread_current()->nice;
     t->recent_cpu = thread_current()->recent_cpu;
+  }
   list_init(&t->holding);
   t->magic = THREAD_MAGIC;
 
