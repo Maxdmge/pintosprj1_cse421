@@ -4,6 +4,7 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include "threads/fixed-point.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -399,7 +400,10 @@ thread_set_nice (int nice UNUSED)
 {
   struct thread *cur = thread_current();
   cur->nice = nice;
-  int prio = PRI_MAX - (thread_get_recent_cpu()/4) - nice * 2;
+  FixedP recent_cpu_div4 = fixedDivInt(cur->recent_cpu, 4);
+  FixedP nice_times_two = convToFixed(nice * 2);
+  FixedP priority_fixed = fixedSub(fixedSub(convToFixed(PRI_MAX), recent_cpu_div4), nice_times_two);
+  int prio = convToInt(priority_fixed);
   if (prio >  PRI_MAX) {
     prio = PRI_MAX;
   } else if (prio < PRI_MIN) {
@@ -416,41 +420,48 @@ thread_get_nice (void)
   return thread_current()->nice;
 }
 
-static float load_avg = 0.0;
+static FixedP load_avg;
 void recalculate_load_avg (void) {
-  load_avg = (59.0/60.0) * load_avg + (1.0/60.0) * list_size(&ready_list);
+  // load_avg = (59/60) * load_avg + (1/60) * ready_threads 
+  FixedP coeff1 = fixedDiv(convToFixed(59), convToFixed(60));
+  FixedP coeff2 = fixedDiv(convToFixed(1), convToFixed(60));
+  int ready_threads = list_size(&ready_list);
+  if (thread_current() != idle_thread) {
+    ready_threads += 1;
+  }
+  FixedP ready_threads_fixed = convToFixed(ready_threads);
+  load_avg = fixedAdd(fixedMull(coeff1, load_avg), fixedMull(coeff2, ready_threads_fixed));
 }
+
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return (int)(load_avg*100);
+  return roundConvToInt(fixedMulInt(load_avg, 100));
 }
 
-void thread_set_recent_cpu(struct thread * cur) { // this will only be called in a timer freq context.
-  int nice = cur->nice;
-  int recent_cpu = cur->recent_cpu;
-  recent_cpu = (2*load_avg)/(2*load_avg+1) * recent_cpu + nice;
-  cur->recent_cpu = recent_cpu;
-  if (cur->status == THREAD_READY) {
-    ready_list_adjust(cur);
+void thread_set_recent_cpu(struct thread * t) {
+  // recent_cpu = (2*load_avg)/(2*load_avg+1)*recent_cpu+nice
+  FixedP two = convToFixed(2);
+  FixedP one = convToFixed(1);
+  FixedP load_avg_times_two = fixedMull(two, load_avg);
+  FixedP coefficient = fixedDiv(load_avg_times_two, fixedAdd(load_avg_times_two, one));
+  FixedP recent_cpu = t->recent_cpu;
+  FixedP nice_fixed = convToFixed(t->nice);
+  recent_cpu = fixedAdd(fixedMull(coefficient, recent_cpu), nice_fixed);
+  t->recent_cpu = recent_cpu;
+  if (t->status == THREAD_READY) {
+    ready_list_adjust(t);
   }
 }
 
+
 /* Returns 100 times the current thread's recent_cpu value. */
-int
 thread_get_recent_cpu (void) 
 {
   struct thread *cur = thread_current();
-  int nice = cur->nice;
-  int load_avg = thread_get_load_avg();
-  int recent_cpu = cur->recent_cpu;
-  recent_cpu = (2*load_avg)/(2*load_avg+1) * recent_cpu + nice;
-  cur->recent_cpu = recent_cpu;
-  return 100 * recent_cpu;
+  return roundConvToInt(fixedMulInt(cur->recent_cpu, 100));
 }
-
 /* Idle thread.  Executes when no other thread is ready to run.
 
    The idle thread is initially put on the ready list by
@@ -543,6 +554,7 @@ init_thread (struct thread *t, const char *name, int priority)
     t->priority = 31;
   }
   t->nice = 0; // default nice value
+  t->recent_cpu = 0;
   list_init(&t->holding);
   t->magic = THREAD_MAGIC;
 
