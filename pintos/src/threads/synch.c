@@ -88,7 +88,7 @@ sema_down (struct semaphore *sema) // im pretty sure this works for both mlfqs a
   intr_set_level (old_level);
 }
 
-mlfqs_down(struct semaphore *sema) {
+void mlfqs_down(struct semaphore *sema) {
   enum intr_level old_level;
 
   ASSERT (sema != NULL);

@@ -104,6 +104,7 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "devices/timer.h"
+#include "threads/interrupt.h"
 
 static int64_t start_time;
 
@@ -131,9 +132,13 @@ test_mlfqs_load_60 (void)
   
   for (i = 0; i < 90; i++) 
     {
+      msg("interrupt level:", intr_get_level());
       int64_t sleep_until = start_time + TIMER_FREQ * (2 * i + 10);
       int load_avg;
+
+      msg ("past decl\n");
       timer_sleep (sleep_until - timer_ticks ());
+      msg ("past timer sleep\n");
       load_avg = thread_get_load_avg ();
       msg ("After %d seconds, load average=%d.%02d.",
            i * 2, load_avg / 100, load_avg % 100);

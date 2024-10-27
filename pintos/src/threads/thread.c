@@ -276,10 +276,15 @@ thread_name (void)
 void 
 ready_list_adjust (struct thread *t)
 {
-  lock_acquire(&ready_lock);
-  list_remove(&t->elem);   // first we remove the old thread:
-  list_insert_ordered(&ready_list,&t->elem,compare_priority,NULL); // we readd this thread to the priority list with it's corrected priority.
-  lock_release(&ready_lock);
+  if (intr_get_level() == INTR_ON) {
+    lock_acquire(&ready_lock);
+    list_remove(&t->elem);   // first we remove the old thread:
+    list_insert_ordered(&ready_list,&t->elem,compare_priority,NULL); // we readd this thread to the priority list with it's corrected priority.
+    lock_release(&ready_lock);
+  } else {
+    list_remove(&t->elem);   // first we remove the old thread:
+    list_insert_ordered(&ready_list,&t->elem,compare_priority,NULL); // we readd this thread to the priority list with it's corrected priority.
+  }
 }
 
 void 
@@ -431,17 +436,24 @@ void recalculate_load_avg (void) {
     ready_threads += 1;
   }
   FixedP ready_threads_fixed = convToFixed(ready_threads);
+  //printf("thread count: %d\n", ready_threads);
+
   load_avg = fixedAdd(fixedMull(coeff1, load_avg), fixedMull(coeff2, ready_threads_fixed));
+  //printf("load avg value following calc: %d\n", convToInt(load_avg));
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  return roundConvToInt(fixedMulInt(load_avg, 100));
+  //printf("load_avg value %d\n", load_avg);
+  return convToInt(fixedMulInt(load_avg, 100));
 }
 
-void thread_set_recent_cpu(struct thread * t) {
+void thread_set_recent_cpu(struct thread * t, void *aux) {
+  if (aux != NULL) {
+    printf("shrimply impossible");
+  }
   // recent_cpu = (2*load_avg)/(2*load_avg+1)*recent_cpu+nice
   FixedP two = convToFixed(2);
   FixedP one = convToFixed(1);
@@ -681,3 +693,12 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+/*
+void recalculate_load_avg(void) {
+  
+}
+
+void thread_set_recent_cpu(struct thread* t)  {
+
+}
+*/

@@ -116,10 +116,14 @@ timer_sleep (int64_t ticks)
   int64_t start = timer_ticks ();
   cur->time=start+ticks; 
 
-
-  lock_acquire(&list_lock);
-  list_insert_ordered(&waiting_list,&cur->sleep,compare_time,NULL);
-  lock_release(&list_lock);
+  if (intr_get_level() == INTR_ON) {
+    //printf("interrupts are on\n");
+    lock_acquire(&list_lock);
+    list_insert_ordered(&waiting_list,&cur->sleep,compare_time,NULL);
+    lock_release(&list_lock);
+  } else {
+    list_insert_ordered(&waiting_list,&cur->sleep,compare_time,NULL);
+  }
   
   enum intr_level prev = intr_disable();
   thread_block();
@@ -224,7 +228,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
   
   if (thread_mlfqs && timer_ticks() % TIMER_FREQ == 0) {
     recalculate_load_avg();
-    thread_foreach(thread_set_recent_cpu(),0);
+    thread_foreach(thread_set_recent_cpu, NULL);
   }
   
 }
