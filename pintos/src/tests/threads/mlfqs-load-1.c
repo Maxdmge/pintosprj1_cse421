@@ -28,9 +28,16 @@ test_mlfqs_load_1 (void)
   start_time = timer_ticks ();
   for (;;) 
     {
+      msg ("before load_avg");
+
       load_avg = thread_get_load_avg ();
+      msg ("after retrieval");
+      msg ("current load_avg value: %d ", load_avg);
       ASSERT (load_avg >= 0);
+      msg ("before start_time");
+
       elapsed = timer_elapsed (start_time) / TIMER_FREQ;
+      msg ("after elapsed");
       if (load_avg > 100)
         fail ("load average is %d.%02d "
               "but should be between 0 and 1 (after %d seconds)",

@@ -41,6 +41,9 @@ static struct lock tid_lock;
 /* lock used for ready list modifications */
 static struct lock ready_lock;
 
+static FixedP load_avg;
+
+
 /* Stack frame for kernel_thread(). */
 struct kernel_thread_frame 
   {
@@ -97,7 +100,7 @@ thread_init (void)
   lock_init (&ready_lock);
   list_init (&ready_list);
   list_init (&all_list);
-
+  load_avg = convToFixed(0);
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
@@ -138,7 +141,6 @@ thread_tick (void)
 #endif
   else
     kernel_ticks++;
-
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
@@ -420,7 +422,6 @@ thread_get_nice (void)
   return thread_current()->nice;
 }
 
-static FixedP load_avg;
 void recalculate_load_avg (void) {
   // load_avg = (59/60) * load_avg + (1/60) * ready_threads 
   FixedP coeff1 = fixedDiv(convToFixed(59), convToFixed(60));
@@ -457,6 +458,7 @@ void thread_set_recent_cpu(struct thread * t) {
 
 
 /* Returns 100 times the current thread's recent_cpu value. */
+int
 thread_get_recent_cpu (void) 
 {
   struct thread *cur = thread_current();
@@ -554,7 +556,10 @@ init_thread (struct thread *t, const char *name, int priority)
     t->priority = 31;
   }
   t->nice = 0; // default nice value
-  t->recent_cpu = 0;
+  if (t == initial_thread)
+    t->recent_cpu = convToFixed(0);
+  else
+    t->recent_cpu = thread_current()->recent_cpu;
   list_init(&t->holding);
   t->magic = THREAD_MAGIC;
 

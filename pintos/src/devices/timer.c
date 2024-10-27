@@ -221,10 +221,12 @@ timer_interrupt (struct intr_frame *args UNUSED)
     }
     lock_release(&list_lock);
   }
+  
   if (thread_mlfqs && timer_ticks() % TIMER_FREQ == 0) {
     recalculate_load_avg();
     thread_foreach(thread_set_recent_cpu(),0);
   }
+  
 }
 
 /* Iterates through a simple loop LOOPS times, for implementing
