@@ -3,6 +3,11 @@
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+//#include "filesys/filesys.c"
+#include "filesys/filesys.h"
+#include <stdlib.h>
+#include "threads/synch.h"
+#include "devices/shutdown.h"
 
 //got these from 5.3 of project doc
 static void sys_halt(void);
@@ -11,13 +16,15 @@ static pid_t sys_exec(const char *cmd_line);
 static int sys_wait(pid_t pid);
 static bool sys_create(const char *file, unsigned initial_size);
 static bool sys_remove(const char *file);
-static int sys_open(const char *file);
-static int sys_filesize (int);
-static int sys_read(int, void *, unsigned);
-static int sys_write(int, const void *, unsigned);
-static void sys_seek(int, unsigned);
-static unsigned sys_tell(int);
-static void sys_close(int);
+// static int sys_open(const char *file);
+// static int sys_filesize (int);
+// static int sys_read(int, void *, unsigned);
+// static int sys_write(int, const void *, unsigned);
+// static void sys_seek(int, unsigned);
+// static unsigned sys_tell(int);
+// static void sys_close(int);
+
+static struct lock file_lock;
 
 
 static void syscall_handler (struct intr_frame *);
@@ -37,7 +44,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       sys_halt();
       break;
     case SYS_EXIT:
-      sys_exit(*(int *)(f->esp+4));
+      sys_exit(*(int *)(f->esp+4)); 
       break;
     case SYS_EXEC: 
       f->eax= sys_exec(*(char **)(f->esp +4));
@@ -51,38 +58,38 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_REMOVE:
       f->eax= sys_remove(*(char **)(f->esp +4));
       break;
-    case SYS_OPEN:
-      f->eax= sys_open(*(char **)(f->esp +4));
-      break;
-    case SYS_FILESIZE:
-      f->eax= sys_filesize(*(int *)(f->esp +4));
-      break;
-    case SYS_READ:
-      f->eax= sys_read(*(int *)(f->esp +4),*(void **)(f->esp+8),*(unsigned *)(f->esp+12));
-      break;
-    case SYS_WRITE: 
-      f->eax= sys_write(*(int *)(f->esp +4),*(void **)(f->esp+8),*(unsigned *)(f->esp+12));
-      break;
-    case SYS_SEEK:
-      sys_seek(*(int *)(f->esp +4),*(unsigned *)(f->esp +8));
-      break;
-    case SYS_TELL:
-      f->eax = sys_tell(*(int *)(f->esp+4));
-      break;
-    case SYS_CLOSE:
-      sys_close(*(int *)(f->esp+4));
-      break;
-    default;
+    // case SYS_OPEN:
+    //   f->eax= sys_open(*(char **)(f->esp +4));
+    //   break;
+    // case SYS_FILESIZE:
+    //   f->eax= sys_filesize(*(int *)(f->esp +4));
+    //   break;
+    // case SYS_READ:
+    //   f->eax= sys_read(*(int *)(f->esp +4),*(void **)(f->esp+8),*(unsigned *)(f->esp+12));
+    //   break;
+    // case SYS_WRITE: 
+    //   f->eax= sys_write(*(int *)(f->esp +4),*(void **)(f->esp+8),*(unsigned *)(f->esp+12));
+    //   break;
+    // case SYS_SEEK:
+    //   sys_seek(*(int *)(f->esp +4),*(unsigned *)(f->esp +8));
+    //   break;
+    // case SYS_TELL:
+    //   f->eax = sys_tell(*(int *)(f->esp+4));
+    //   break;
+    // case SYS_CLOSE:
+    //   sys_close(*(int *)(f->esp+4));
+    //   break;
+    default:
       printf ("system call!\n");
       thread_exit ();
   }
+}
 
-
-static void sys_halt(void){// done
+static void sys_halt(void) {// done
   shutdown_power_off(); 
 }
 
-static void sys_exit(int status){ //done
+static void sys_exit(int status) { //done
   struct thread *cur= thread_current();
   cur->checkexit = status;
   printf("%s: exit(%d)\n", cur->name, status);
@@ -90,48 +97,75 @@ static void sys_exit(int status){ //done
 }
 
 
-static pid_t sys_exec(const char *cmd_line){
+static pid_t sys_exec(const char *cmd_line) { //done
   if(cmd_line ==NULL){
-    exit(-1);
+    sys_exit(-1);
   }
-  }
+  return process_execute(cmd_line);
 }
 
 
-static int sys_wait(pid_t pid){ //done
+static int sys_wait(pid_t pid) { //done
   return process_wait(pid);
 }
 
-static bool sys_create(const char *file, unsigned initial_size){
-
+static bool sys_create(const char *file, unsigned initial_size) {// done
+  lock_acquire(&file_lock);
+  if(file== NULL){
+    lock_release(&file_lock);
+    sys_exit(-1);
+  }
+  bool status= filesys_create(file, initial_size);
+  lock_release(&file_lock);
+  return status;
 }
 
-static bool sys_remove(const char *file){
-
-}
-static int sys_open(const char *file){
-
-}
-static int sys_filesize (int){
-
-}
-static int sys_read(int, void *, unsigned){
-
-}
-static int sys_write(int, const void *, unsigned){
-
-}
-static void sys_seek(int, unsigned){
-
-}
-static unsigned sys_tell(int){
-
-}
-static void sys_close(int){
-
+static bool sys_remove(const char *file) {// done
+  if(file== NULL){
+    sys_exit(-1);
+  }
+  lock_acquire(&file_lock);
+  bool status= filesys_remove(file);
+  lock_release(&file_lock);
+  return status;
 }
 
+// static int sys_open(const char *file){
+//   if(file== NULL){
+//     sys_exit(-1);
+//   }
+//   lock_aquire(&file_lock);
+//   struct file *openfile= filesys_open(file);
+//   struct thread *cur= thread_current();
+//   struct file_des *des= malloc(sizeof(struct file_des)); 
+  
+//   des->fd= cur->next_fd++;
+//   list_push_back();
+//   lock_release(&file_lock);
+
+  
+// }
+
+// static int sys_filesize (int){
+
+// }
+// static int sys_read(int, void *, unsigned){
+
+// }
+// static int sys_write(int, const void *, unsigned){
+
+// }
+// static void sys_seek(int, unsigned){
+
+// }
+// static unsigned sys_tell(int){
+
+// }
+// static void sys_close(int){
+
+// }
 
 
-}
+
+
 

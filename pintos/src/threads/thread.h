@@ -95,8 +95,8 @@ struct thread
 
 
    int checkexit;
-   bool loadstatus
-   struct semaphore loadcheck;
+   bool loadstatus;
+   //struct semaphore loadcheck;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
